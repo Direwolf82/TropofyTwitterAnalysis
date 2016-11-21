@@ -1,0 +1,3 @@
+tropofy
+requests
+simplekml

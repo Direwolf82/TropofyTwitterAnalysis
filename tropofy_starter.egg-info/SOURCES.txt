@@ -1,0 +1,8 @@
+setup.py
+te_starter/__init__.py
+te_starter/starter.py
+tropofy_starter.egg-info/PKG-INFO
+tropofy_starter.egg-info/SOURCES.txt
+tropofy_starter.egg-info/dependency_links.txt
+tropofy_starter.egg-info/requires.txt
+tropofy_starter.egg-info/top_level.txt
