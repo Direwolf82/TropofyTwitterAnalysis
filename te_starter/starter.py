@@ -48,12 +48,18 @@ class Tweet(DataSetMixin):
     text = Column(Text, nullable=False)
     coordinates = Column(Text, nullable = True)
     tweet_id = Column(Text, nullable = False)
+    sentiment_polarity = Column(Float, nullable = False)
+    sentiment_subjectivity = Column(Float, nullable = False)
+    search_term_used = Column(Text, nullable = False)
 
-    def __init__(self, author, text, coordinates, tweetId):
+    def __init__(self, author, text, coordinates, tweetId, polarity, subjectivity, search_term):
         self.author = author
         self.text = text
         self.coordinates = coordinates
         self.tweet_id = tweetId
+        self.sentiment_polarity = polarity
+        self.sentiment_subjectivity = subjectivity
+        self.search_term_used = search_term
 
     @classmethod
     def get_table_args(cls):
@@ -102,7 +108,7 @@ class ExecuteGetTweets(ExecuteFunction):
 
     def execute_function(self, app_session):
         tweet_data =[]
-        tweet_sentiments = []
+        #tweet_sentiments = []
         for searchTerms in app_session.data_set.query(TweetSearchTerms).all():
             searchString = searchTerms.search_term
             max_id = searchTerms.max_twitter_id
@@ -111,13 +117,13 @@ class ExecuteGetTweets(ExecuteFunction):
             else:
                 tweets = TweetGetter.GetTweets(searchString, max_id)
             for tweet in tweets:
-                twt = Tweet(tweet.author.name, tweet.text, tweet.coordinates, tweet.id )
+                blob = TextBlob(tweet.text)
+                twt = Tweet(tweet.author.name, tweet.text, tweet.coordinates, tweet.id, blob.sentiment.polarity, blob.sentiment.subjectivity, searchString )
                 tweet_data.append(twt)
-                blob = TextBlob(twt.text)
-                sentiment = TweetSentiment(twt.tweet_id, blob.polarity, blob.subjectivity, searchString )
-                tweet_sentiments.append(sentiment)
+                #sentiment = TweetSentiment(twt.tweet_id, blob.polarity, blob.subjectivity, searchString )
+                #tweet_sentiments.append(sentiment)
 
-        app_session.data_set.add_all(tweet_sentiments)
+        #app_session.data_set.add_all(tweet_sentiments)
         app_session.data_set.add_all(tweet_data)
 
 class SentimentScatterChart(Chart):
@@ -135,12 +141,12 @@ class SentimentScatterChart(Chart):
         results = []
         search_terms = app_session.data_set.query(TweetSearchTerms.search_term).distinct()
         for term in search_terms:
-            sentiments = app_session.data_set.query(TweetSentiment).filter_by(search_term = term)
-            for sentiment in sentiments:
+            tweets = app_session.data_set.query(Tweet).filter_by(search_term = term)
+            for tweet in tweets:
                 results.append({
-                    "sentiment_subjectivity": sentiment.sentiment_subjectivity,
-                    "sentiment_polarity": sentiment.sentiment_polarity,
-                    "search_term": term
+                    "sentiment_subjectivity": tweet.sentiment_subjectivity,
+                    "sentiment_polarity": tweet.sentiment_polarity,
+                    "search_term": search_term
                 })
 
 class MyFirstApp(AppWithDataSets):
@@ -159,4 +165,3 @@ class MyFirstApp(AppWithDataSets):
         step_group_3.add_step(Step(name="Sentiment Distribution", widgets=[SentimentScatterChart()]))
 
         return [step_group_1, step_group_2, step_group_3]
-
