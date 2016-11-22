@@ -15,7 +15,7 @@ from sqlalchemy.types import Text, Float, Integer
 from sqlalchemy.schema import Column, ForeignKeyConstraint, UniqueConstraint
 from tropofy.database.tropofy_orm import DataSetMixin
 from tropofy.app import AppWithDataSets, Step, StepGroup
-from tropofy.widgets import SimpleGrid, KMLMap, ExecuteFunction, GridWidget
+from tropofy.widgets import SimpleGrid, KMLMap, ExecuteFunction, Chart
 from simplekml import Kml
 import tweepy
 from textblob import TextBlob
@@ -47,17 +47,36 @@ class Tweet(DataSetMixin):
     author = Column(Text, nullable = False)
     text = Column(Text, nullable=False)
     coordinates = Column(Text, nullable = True)
-    tweetId = Column(Text, nullable = False)
+    tweet_id = Column(Text, nullable = False)
 
     def __init__(self, author, text, coordinates, tweetId):
         self.author = author
         self.text = text
         self.coordinates = coordinates
-        self.tweetId = tweetId
+        self.tweet_id = tweetId
 
     @classmethod
     def get_table_args(cls):
-        return(UniqueConstraint('tweetId','data_set_id'),)
+        return(UniqueConstraint('tweet_id','data_set_id'),)
+
+class TweetSentiment(DataSetMixin):
+    tweet_id = Column(Text, nullable = False)
+    sentiment_polarity = Column(Float, nullable = False)
+    sentiment_subjectivity = Column(Float, nullable = False)
+    search_term = Column(Text, nullable = False)
+
+    def __init__(self, id, polarity, subjectivity, search_term):
+        self.tweet_id = id
+        self.sentiment_polarity = polarity
+        self.sentiment_subjectivity = subjectivity
+        self.search_term = search_term
+
+    @classmethod
+    def get_table_args(cls):
+        return(
+            UniqueConstraint('tweet_id', 'search_term', 'data_set_id'),
+            ForeignKeyConstraint(['tweet_id', 'data_set_id'], ['tweet.tweet_id', 'tweet.data_set_id'], ondelete='CASCADE', onupdate='CASCADE'),
+        )
 
 class TweetSearchTerms(DataSetMixin):
     search_term = Column(Text, nullable = False)
@@ -82,7 +101,8 @@ class ExecuteGetTweets(ExecuteFunction):
         return "Retrieve Tweets"
 
     def execute_function(self, app_session):
-        results =[]
+        tweet_data =[]
+        tweet_sentiments = []
         for searchTerms in app_session.data_set.query(TweetSearchTerms).all():
             searchString = searchTerms.search_term
             max_id = searchTerms.max_twitter_id
@@ -92,9 +112,36 @@ class ExecuteGetTweets(ExecuteFunction):
                 tweets = TweetGetter.GetTweets(searchString, max_id)
             for tweet in tweets:
                 twt = Tweet(tweet.author.name, tweet.text, tweet.coordinates, tweet.id )
-                results.append(twt)
-        app_session.data_set.add_all(results)
-        return results
+                tweet_data.append(twt)
+                blob = TextBlob(twt.text)
+                sentiment = TweetSentiment(twt.tweet_id, blob.polarity, blob.subjectivity, searchString )
+                tweet_sentiments.append(sentiment)
+
+        app_session.data_set.add_all(tweet_sentiments)
+        app_session.data_set.add_all(tweet_data)
+
+class SentimentScatterChart(Chart):
+    def get_chart_type(self, app_session):
+        return Chart.SCATTERCHART
+
+    def get_table_schema(self, app_session):
+        return{
+            "sentiment_subjectivity": ("number", "Subjectivity"),
+            "sentiment_polarity": ("number", "Polarity"),
+            "search_term": ("string", "Search Term")
+        }
+
+    def get_table_data(self, app_session):
+        results = []
+        search_terms = app_session.data_set.query(TweetSearchTerms.search_term).distinct()
+        for term in search_terms:
+            sentiments = app_session.data_set.query(TweetSentiment).filter_by(search_term = term)
+            for sentiment in sentiments:
+                results.append({
+                    "sentiment_subjectivity": sentiment.sentiment_subjectivity,
+                    "sentiment_polarity": sentiment.sentiment_polarity,
+                    "search_term": term
+                })
 
 class MyFirstApp(AppWithDataSets):
     def get_name(self):
@@ -108,8 +155,8 @@ class MyFirstApp(AppWithDataSets):
         step_group_2 = StepGroup(name = 'Results')
         step_group_2.add_step(Step(name='Tweets', widgets=[SimpleGrid(Tweet, editable=False)]))
 
-        #step_group_3 = StepGroup(name = 'Visualisations')
+        step_group_3 = StepGroup(name = 'Visualisations')
+        step_group_3.add_step(Step(name="Sentiment Distribution", widgets=[SentimentScatterChart()]))
 
-
-        return [step_group_1, step_group_2]
+        return [step_group_1, step_group_2, step_group_3]
 
